@@ -16,8 +16,9 @@ class TestUserLogin:
         response = api_manager.user_steps.login_user(login_admin_request)
 
         # Assert
-        assert response.user.username == login_admin_request.username
-        assert response.user.role == 'ROLE_ADMIN'
+        assert response.user.username == login_admin_request.username, \
+            f"Не совпал логин при авторизации администратором, пришел {response.user.username} вместо {login_admin_request.username}"
+        assert response.user.role == 'ROLE_ADMIN', f"Роль не админ, a {response.user.role}"
 
     def test_admin_login_invalid(self, api_manager: ApiManager):
         """Негативный тест: авторизация с несуществующим логином администратора."""
@@ -37,5 +38,6 @@ class TestUserLogin:
         response = api_manager.user_steps.login_user(create_user_request)
 
         # Assert
-        assert response.user.username == create_user_request.username
-        assert response.user.role == 'ROLE_USER'
+        assert response.user.username == create_user_request.username, \
+            f"Не совпал логин при авторизации пользователем, пришел {response.user.username} вместо {create_user_request.username}"
+        assert response.user.role == 'ROLE_USER', f"Роль не юзер, a {response.user.role}"

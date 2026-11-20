@@ -22,7 +22,7 @@ class TestCreateAccount:
         account_from_db = Account.get_account_by_id(db_session, response.id)
 
         # Assert: проверяем ответ API и наличие записи в БД
-        assert response.balance == 0
+        assert response.balance == 0, f'Счет при инициации должен быть равен 0, a равен - {response.balance}'
         assert account_from_db is not None, f'Счёт {response.id} не найден в БД'
         assert account_from_db.id == response.id, 'ID счёта в БД не совпадает с ответом API'
         assert account_from_db.balance == 0, 'Начальный баланс созданного счёта в БД должен быть 0'

@@ -20,4 +20,3 @@ class LoginUserRequester(Requester):
         if response.status_code == HTTPStatus.OK:
             return LoginUserResponse(**response.json())
         return response
-

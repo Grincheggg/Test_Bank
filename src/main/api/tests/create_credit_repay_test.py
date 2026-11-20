@@ -1,8 +1,11 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from src.main.api.models.create_credit_response import CreateCreditResponse
+from src.main.api.models.create_account_response import CreateAccountResponse
 from src.main.api.classes.api_manager import ApiManager
 from src.main.api.db.crud.account_crud import AccountCrudDb as Account
+from src.main.api.db.crud.credit_crud import CreditCrudDB as Credit
 from src.main.api.models.create_credit_user_request import CreateCreditUserRequest
 
 
@@ -12,100 +15,85 @@ class TestCreditRepayRequest:
         self,
         api_manager: ApiManager,
         create_credit_user_request: CreateCreditUserRequest,
+        create_credit_account: CreateAccountResponse,
+        create_credit_request: CreateCreditResponse,
         db_session: Session,
     ):
         """Позитивный тест: полное погашение действующего кредита и проверка обнуления долга."""
-        # Arrange: создаём счёт, оформляем кредит и фиксируем баланс после выдачи
-        credit_amount = 5000
-        credit_term_months = 12
-        account = api_manager.user_steps.create_account(create_credit_user_request)
-        credit = api_manager.user_steps.create_credit_request(
+        # Arrange: обновляем состояние аккаунта после получения кредита
+        actual_state_account_before_repay = api_manager.user_steps.get_account_transactions(
             create_user_request=create_credit_user_request,
-            account_id=account.id,
-            amount=credit_amount,
-            term_months=credit_term_months,
-        )
-        account_after_credit = api_manager.user_steps.get_account_transactions(
-            create_user_request=create_credit_user_request,
-            account_id=account.id,
+            account_id=create_credit_account.id,
         )
 
         # Act: полностью погашаем кредит
         response = api_manager.user_steps.create_repay(
             create_user_request=create_credit_user_request,
-            credit_id=credit.credit_id,
-            account_id=account.id,
-            amount=credit_amount,
+            credit_id=create_credit_request.credit_id,
+            account_id=create_credit_account.id,
+            amount=create_credit_request.amount,
         )
 
         # Получаем обновлённый баланс счёта, историю кредитов и запись из БД
         actual_state_account = api_manager.user_steps.get_account_transactions(
             create_user_request=create_credit_user_request,
-            account_id=account.id,
+            account_id=create_credit_account.id,
         )
         credit_history = api_manager.user_steps.get_credit_history(
             create_user_request=create_credit_user_request,
         )
-        account_from_db = Account.get_account_by_id(db_session, account.id)
+        account_from_db = Account.get_account_by_id(db_session, create_credit_account.id)
+        credit_from_db = Credit.get_credit_by_id(db_session, credit_id=create_credit_request.credit_id)
 
         # Assert: проверяем списание денег в API и БД, а также закрытие долга в истории
-        assert response.credit_id == credit.credit_id
-        assert actual_state_account.balance == account_after_credit.balance - credit_amount
-        assert account_from_db is not None, f'Счёт {account.id} не найден в БД'
-        assert account_from_db.balance == account_after_credit.balance - credit_amount
-        assert len(credit_history.credits) == 1
-        assert credit_history.credits[0].balance == 0.0
+        assert response.credit_id == create_credit_request.credit_id, f'Id кредитов не совпали, ожидали: {create_credit_request.credit_id} , получили {response.credit_id}'
+        assert actual_state_account.balance == actual_state_account_before_repay.balance - create_credit_request.amount, \
+            f'Баланс после оплаты кредита в АПИ отличается, ожидали: {actual_state_account_before_repay.balance - create_credit_request.amount}, получили: {actual_state_account.balance}'
+        assert len(credit_history.credits) == 1, f'В истории кредитов ожидали 1 запись, получили: {len(credit_history.credits)}'
+        assert credit_history.credits[0].balance == 0, f'Долг после погашения должен быть 0, получили: {credit_history.credits[0].balance}'
+        assert credit_from_db is not None, f'Данные о кредите отсутствуют в БД'
+        assert credit_from_db.balance == 0, f'Долг в БД не закрыт, ожидали 0, пришло: {credit_from_db.balance}'
+        assert account_from_db.balance == actual_state_account_before_repay.balance - create_credit_request.amount, \
+            f'Баланс после оплаты кредита в БД отличается, ожидали: {actual_state_account_before_repay.balance - create_credit_request.amount}, получили: {account_from_db.balance}'
 
     def test_credit_repay_invalid(
         self,
         api_manager: ApiManager,
         create_credit_user_request: CreateCreditUserRequest,
+        create_credit_account: CreateAccountResponse,
+        create_repaid_credit: CreateCreditResponse,
         db_session: Session,
     ):
         """Негативный тест: повторное погашение уже закрытого кредита (ожидаем 409 без списания)."""
-        # Arrange: создаём счёт, оформляем кредит и полностью его погашаем
-        credit_amount = 5000
-        cash_for_repeat_repay = 5000
-        credit_term_months = 12
-
-        account = api_manager.user_steps.create_account(create_credit_user_request)
-        credit = api_manager.user_steps.create_credit_request(
+        account_before_repay = api_manager.user_steps.get_account_transactions(
             create_user_request=create_credit_user_request,
-            account_id=account.id,
-            amount=credit_amount,
-            term_months=credit_term_months,
-        )
-        api_manager.user_steps.create_repay(
-            create_user_request=create_credit_user_request,
-            credit_id=credit.credit_id,
-            account_id=account.id,
-            amount=credit_amount,
-        )
-
-        # Пополняем счёт перед повторной попыткой, чтобы банк не отказал по 422 (нехватка средств),
-        # а дошёл до проверки статуса кредита и вернул 409 Conflict
-        api_manager.user_steps.create_deposit(
-            create_user_request=create_credit_user_request,
-            account_id=account.id,
-            amount=cash_for_repeat_repay,
+            account_id=create_credit_account.id,
         )
 
         # Act: пытаемся повторно погасить уже закрытый кредит
         api_manager.user_steps.create_repay_invalid(
             create_user_request=create_credit_user_request,
-            credit_id=credit.credit_id,
-            account_id=account.id,
-            amount=credit_amount,
+            credit_id=create_repaid_credit.credit_id,
+            account_id=create_credit_account.id,
+            amount=create_repaid_credit.amount,
         )
 
         # Получаем состояние счёта после отказа из API и БД
-        actual_state_account = api_manager.user_steps.get_account_transactions(
+        account_after_repay = api_manager.user_steps.get_account_transactions(
             create_user_request=create_credit_user_request,
-            account_id=account.id,
+            account_id=create_credit_account.id,
         )
-        account_from_db = Account.get_account_by_id(db_session, account.id)
+        credit_history = api_manager.user_steps.get_credit_history(
+            create_user_request=create_credit_user_request,
+        )
 
-        # Assert: убеждаемся, что повторного списания не произошло ни в API, ни в БД
-        assert actual_state_account.balance == cash_for_repeat_repay
-        assert account_from_db is not None, f'Счёт {account.id} не найден в БД'
-        assert account_from_db.balance == cash_for_repeat_repay
+        account_from_db = Account.get_account_by_id(db_session, create_credit_account.id)
+        credit_from_db = Credit.get_credit_by_id(db_session, credit_id=create_repaid_credit.credit_id)
+
+        assert account_after_repay.balance == account_before_repay.balance, \
+            f'Повторное погашение списало деньги: ожидали баланс {account_before_repay.balance}, получили {account_after_repay.balance}'
+        assert account_from_db.balance == account_before_repay.balance, \
+            f'В БД баланс изменился после отказа: ожидали {account_before_repay.balance}, получили {account_from_db.balance}'
+        assert credit_from_db.balance == 0, f'Долг по кредиту {create_repaid_credit.credit_id} снова открылся: ожидали 0, получили {credit_from_db.balance}'
+        assert len(credit_history.credits) == 1, f'В истории кредитов появился дубль: ожидали 1 запись, получили {len(credit_history.credits)}'
+        assert credit_history.credits[0].balance == 0, f'Долг в истории кредитов снова открылся: ожидали 0, получили {credit_history.credits[0].balance}'

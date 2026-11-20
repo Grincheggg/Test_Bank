@@ -9,7 +9,7 @@ from src.main.api.models.create_user_request import CreateUserRequest
 
 @pytest.mark.api
 class TestCreateUser:
-    #Возможно логичнее убрать здесь parametrize, и сделать генерацию в теле теста?
+    # Возможно логичнее убрать здесь parametrize, и сделать генерацию в теле теста?
     @pytest.mark.parametrize(
         'create_user_request',
         [RandomModelGenerator.generate(CreateUserRequest)],
@@ -28,10 +28,10 @@ class TestCreateUser:
         user_from_db = User.get_user_by_username(db_session, create_user_request.username)
 
         # Assert: проверяем ответ API и запись в БД
-        assert response.username == create_user_request.username
-        assert response.role == create_user_request.role
+        assert response.username == create_user_request.username, 'Ошибка, неверный логин'
+        assert response.role == create_user_request.role, "Роль не юзер"
         assert user_from_db is not None, f'Пользователь {create_user_request.username} не найден в БД'
-        assert user_from_db.username == create_user_request.username
+        assert user_from_db.username == create_user_request.username, 'Ошибка, неверный логин'
 
     @pytest.mark.parametrize(
         'username, password',
@@ -69,4 +69,4 @@ class TestCreateUser:
 
         # Assert: убеждаемся, что пользователь не был создан в БД
         user_from_db = User.get_user_by_username(db_session, username)
-        assert user_from_db is None
+        assert user_from_db is None, "Создан пользователь с невалидными данными"
