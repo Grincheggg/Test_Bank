@@ -1,0 +1,7 @@
+pytest
+requests
+pydantic
+allure-pytest
+SQLAlchemy
+psycopg2-binary
+rstr
